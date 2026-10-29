@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AI-Based 8-Puzzle Solver</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#E8ECF8;
+  --surface:#F6F8FD;
+  --ink:#17203A;
+  --muted:#4F5875;
+  --line:#C4CCE4;
+  --tile:#2B45D6;
+  --tile-edge:#1A2E9E;
+  --tile-ink:#FFFFFF;
+  --gold:#F4B63D;
+  --gold-tint:#FBE7B8;
+  --bar-bfs:#8892B8;
+  --bar-astar:#2B45D6;
+  --focus:#B9780A;
+  color-scheme:light;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#0F1426;
+    --surface:#182041;
+    --ink:#E8ECFA;
+    --muted:#A3ADD3;
+    --line:#2C3764;
+    --tile:#4560EC;
+    --tile-edge:#2B3FB5;
+    --gold-tint:#3A3015;
+    --bar-bfs:#6E79A8;
+    --bar-astar:#7F94FF;
+    --focus:#F4B63D;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#0F1426;
+  --surface:#182041;
+  --ink:#E8ECFA;
+  --muted:#A3ADD3;
+  --line:#2C3764;
+  --tile:#4560EC;
+  --tile-edge:#2B3FB5;
+  --gold-tint:#3A3015;
+  --bar-bfs:#6E79A8;
+  --bar-astar:#7F94FF;
+  --focus:#F4B63D;
+  color-scheme:dark;
+}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*,*::before,*::after{box-sizing:border-box}
+body{
+  margin:0;
+  background:var(--bg);
+  color:var(--ink);
+  font-family:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:17px;
+  line-height:1.55;
+}
+.wrap{max-width:1040px;margin:0 auto;padding:28px 20px 56px}
+h1,h2,h3,.num{font-family:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif}
+h1{font-size:clamp(2.1rem,6vw,3.6rem);line-height:1.02;margin:0 0 12px;font-weight:800;letter-spacing:-.02em;max-width:14ch}
+.lede{max-width:56ch;color:var(--muted);margin:0 0 30px;font-size:1.05rem}
+h2{font-size:1.5rem;margin:0 0 14px;font-weight:700;letter-spacing:-.01em}
+h3{font-size:1.1rem;margin:0 0 6px;font-weight:700}
+
+/* stage */
+.stage{display:grid;grid-template-columns:minmax(0,380px) minmax(0,1fr);gap:36px;align-items:start}
+@media (max-width:820px){.stage{grid-template-columns:1fr;gap:26px}}
+
+.board-wrap{width:100%;max-width:380px;margin:0 auto}
+.board{
+  position:relative;width:100%;aspect-ratio:1/1;
+  background:var(--surface);
+  border:2px solid var(--line);
+  border-radius:24px;
+  padding:6px;
+}
+.board-inner{position:relative;width:100%;height:100%}
+.tile,.blank{
+  position:absolute;left:0;top:0;width:33.3333%;height:33.3333%;padding:5px;
+  transform:translate(calc(var(--c) * 100%),calc(var(--r) * 100%));
+  transition:transform .22s cubic-bezier(.3,.7,.3,1);
+}
+.tile{border:0;background:none;cursor:pointer;font:inherit}
+.tile span{
+  display:grid;place-items:center;width:100%;height:100%;
+  background:var(--tile);color:var(--tile-ink);
+  border-radius:14px;
+  box-shadow:0 5px 0 var(--tile-edge);
+  font-family:"Bricolage Grotesque","Trebuchet MS",system-ui,sans-serif;
+  font-weight:800;font-size:clamp(2rem,10vw,3.1rem);
+  transition:translate .12s;
+}
+.tile:active span{translate:0 3px;box-shadow:0 2px 0 var(--tile-edge)}
+.blank{pointer-events:none}
+.blank span{display:block;width:100%;height:100%;border:2.5px dashed var(--gold);border-radius:14px;background:var(--gold-tint)}
+.tile:focus-visible{outline:3px solid var(--focus);outline-offset:-2px;border-radius:18px}
+
+.playbar{margin-top:20px;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.playbar .buttons{display:flex;gap:8px}
+.stepnote{font-size:.95rem;color:var(--muted)}
+.seg{display:inline-flex;border:2px solid var(--line);border-radius:10px;overflow:hidden;margin-top:14px}
+.seg label{display:block}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;padding:7px 16px;cursor:pointer;font-weight:700;color:var(--muted)}
+.seg input:checked + span{background:var(--tile);color:var(--tile-ink)}
+.seg input:focus-visible + span{outline:3px solid var(--focus);outline-offset:-3px}
+.seg input:disabled + span{opacity:.45;cursor:not-allowed}
+
+/* buttons */
+.btn{
+  font:inherit;font-weight:700;color:var(--ink);
+  background:transparent;border:2px solid var(--line);
+  border-radius:10px;padding:8px 14px;cursor:pointer;min-height:44px;
+}
+.btn:hover:not(:disabled){border-color:var(--tile)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.primary{background:var(--tile);border-color:var(--tile);color:var(--tile-ink);padding:10px 22px;font-size:1.05rem;box-shadow:0 4px 0 var(--tile-edge)}
+.btn.primary:active:not(:disabled){translate:0 3px;box-shadow:0 1px 0 var(--tile-edge)}
+.btn:focus-visible,input[type=text]:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* controls */
+.group{margin-bottom:24px}
+.group p{margin:0 0 10px;color:var(--muted);font-size:.97rem}
+.row{display:flex;flex-wrap:wrap;gap:8px}
+.entry{display:flex;gap:8px;flex-wrap:wrap}
+input[type=text]{
+  flex:1 1 180px;min-width:0;font:inherit;font-size:1.05rem;letter-spacing:.12em;
+  padding:9px 12px;border:2px solid var(--line);border-radius:10px;
+  background:var(--surface);color:var(--ink);min-height:44px;
+}
+.msg{min-height:1.6em;margin:14px 0 0;font-weight:700}
+.msg.error{color:#C2362B}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .msg.error{color:#FF8A7E}}
+:root[data-theme="dark"] .msg.error{color:#FF8A7E}
+
+/* results */
+#results{margin-top:56px}
+#results[hidden]{display:none}
+.summary{font-size:1.15rem;max-width:60ch;margin:0 0 22px}
+.compare{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-bottom:26px}
+@media (max-width:620px){.compare{grid-template-columns:1fr}}
+.algo{border-top:4px solid var(--bar-bfs);padding-top:12px}
+.algo.astar{border-top-color:var(--bar-astar)}
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin:10px 0 0}
+.stat dt{font-size:.88rem;color:var(--muted)}
+.stat dd{margin:0;font-family:"Bricolage Grotesque",system-ui,sans-serif;font-weight:800;font-size:1.6rem;line-height:1.1;overflow-wrap:anywhere}
+.bars{display:grid;gap:10px;margin:0 0 34px;max-width:720px}
+.barrow{display:grid;grid-template-columns:3.2rem 1fr;gap:10px;align-items:center}
+.barrow b{font-family:"Bricolage Grotesque",system-ui,sans-serif}
+.track{background:var(--surface);border-radius:8px;height:26px;overflow:hidden;border:1px solid var(--line)}
+.fill{height:100%;min-width:3px;border-radius:7px;background:var(--bar-bfs);transition:width .5s ease}
+.fill.astar{background:var(--bar-astar)}
+.barlabel{font-size:.9rem;color:var(--muted);margin:0 0 -2px}
+
+.steps{margin:0;padding:0;list-style:none;display:flex;flex-wrap:wrap;gap:6px;max-height:220px;overflow-y:auto;padding:2px}
+.steps button{
+  font:inherit;font-size:.92rem;border:2px solid var(--line);background:transparent;color:var(--ink);
+  border-radius:8px;padding:5px 10px;cursor:pointer;min-height:36px;
+}
+.steps button[aria-current="step"]{background:var(--tile);border-color:var(--tile);color:var(--tile-ink)}
+.steps button:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+
+/* about */
+.about{margin-top:60px;display:grid;grid-template-columns:1fr 1fr;gap:40px;border-top:2px solid var(--line);padding-top:30px}
+@media (max-width:720px){.about{grid-template-columns:1fr;gap:26px}}
+.about p{margin:0 0 10px;max-width:52ch}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:.92em;background:var(--surface);padding:1px 6px;border-radius:5px;border:1px solid var(--line)}
+footer{margin-top:44px;color:var(--muted);font-size:.93rem}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@media (prefers-reduced-motion: reduce){
+  .tile,.blank,.fill,.tile span{transition:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>AI-Based 8-Puzzle Solver</h1>
+    <p class="lede">Set up a board and run Breadth-First Search and A* Search on it. Compare how many moves each needs, how many states it explores, and watch the solution play out.</p>
+  </header>
+
+  <main>
+    <section class="stage" aria-label="Puzzle">
+      <div class="board-wrap">
+        <div class="board" role="group" aria-label="8-puzzle board">
+          <div class="board-inner" id="boardInner"></div>
+        </div>
+
+        <div class="seg" role="radiogroup" aria-label="Solution to play">
+          <label><input type="radio" name="algo" value="bfs" disabled><span>BFS</span></label>
+          <label><input type="radio" name="algo" value="astar" checked disabled><span>A*</span></label>
+        </div>
+
+        <div class="playbar">
+          <div class="buttons">
+            <button class="btn" id="prevBtn" disabled aria-label="Previous step">Back</button>
+            <button class="btn" id="playBtn" disabled>Play</button>
+            <button class="btn" id="nextBtn" disabled aria-label="Next step">Next</button>
+          </div>
+          <span class="stepnote" id="stepNote" aria-live="polite">Not solved yet</span>
+        </div>
+      </div>
+
+      <div>
+        <div class="group">
+          <h2>Choose a board</h2>
+          <p>Click any tile next to the empty space to move it, or start from one of these.</p>
+          <div class="row">
+            <button class="btn" data-preset="1,2,3,4,0,6,7,5,8">Quick</button>
+            <button class="btn" data-preset="2,8,3,1,6,4,7,0,5">Classic</button>
+            <button class="btn" data-preset="8,6,7,2,5,4,3,0,1">Hardest</button>
+            <button class="btn" id="shuffleBtn">Shuffle</button>
+          </div>
+        </div>
+
+        <div class="group">
+          <label for="boardInput"><h3>Type your own</h3></label>
+          <p>Enter the three rows in order, using 0 for the blank space. Each number from 0 to 8 appears once.</p>
+          <div class="entry">
+            <input type="text" id="boardInput" inputmode="numeric" autocomplete="off" placeholder="2 8 3 1 6 4 7 0 5" aria-describedby="msg">
+            <button class="btn" id="applyBtn">Use this board</button>
+          </div>
+        </div>
+
+        <button class="btn primary" id="solveBtn">Solve with BFS and A*</button>
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+      </div>
+    </section>
+
+    <section id="results" hidden aria-label="Results">
+      <h2>Results</h2>
+      <p class="summary" id="summary"></p>
+
+      <div class="compare">
+        <div class="algo">
+          <h3>Breadth-First Search</h3>
+          <dl class="stats">
+            <div class="stat"><dt>Moves</dt><dd id="bfsMoves"></dd></div>
+            <div class="stat"><dt>States explored</dt><dd id="bfsExplored"></dd></div>
+            <div class="stat"><dt>Time</dt><dd id="bfsTime"></dd></div>
+          </dl>
+        </div>
+        <div class="algo astar">
+          <h3>A* Search</h3>
+          <dl class="stats">
+            <div class="stat"><dt>Moves</dt><dd id="astarMoves"></dd></div>
+            <div class="stat"><dt>States explored</dt><dd id="astarExplored"></dd></div>
+            <div class="stat"><dt>Time</dt><dd id="astarTime"></dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <p class="barlabel">States explored</p>
+      <div class="bars" aria-hidden="true">
+        <div class="barrow"><b>BFS</b><div class="track"><div class="fill" id="bfsBar"></div></div></div>
+        <div class="barrow"><b>A*</b><div class="track"><div class="fill astar" id="astarBar"></div></div></div>
+      </div>
+
+      <h3>Solution steps</h3>
+      <p class="stepnote" id="stepsFor" style="margin:0 0 10px"></p>
+      <ol class="steps" id="stepList"></ol>
+    </section>
+
+    <section class="about" aria-label="How it works">
+      <div>
+        <h2>Breadth-First Search</h2>
+        <p>BFS keeps a queue of boards and always expands the oldest one first, so it checks every board that is one move away, then two moves away, and so on.</p>
+        <p>The first time it reaches the goal, the route is the shortest possible. The cost is memory and time: it has no sense of direction and can explore tens of thousands of boards.</p>
+      </div>
+      <div>
+        <h2>A* Search</h2>
+        <p>A* ranks each board by moves made so far plus the Manhattan distance, the total number of rows and columns every tile is away from its home spot.</p>
+        <p>Because that estimate never overshoots, A* still finds a shortest solution, but it follows the most promising boards first and usually explores far fewer.</p>
+      </div>
+      <div>
+        <h2>Solvable boards</h2>
+        <p>Half of all arrangements can never reach the goal. The solver counts inversions, pairs of tiles that are out of order ignoring the blank, and only runs when that count is even.</p>
+      </div>
+      <div>
+        <h2>The goal board</h2>
+        <p>Tiles 1 to 8 in reading order with the blank in the bottom-right corner: <code>1 2 3 / 4 5 6 / 7 8 _</code>.</p>
+      </div>
+    </section>
+
+    <footer>Search logic ported from the project's Python <code>main.py</code> to JavaScript so it runs in the browser.</footer>
+  </main>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var GOAL = [1,2,3,4,5,6,7,8,0];
+  var GOAL_KEY = GOAL.join("");
+
+  /* ---------- search code (port of main.py) ---------- */
+  function keyOf(s){ return s.join(""); }
+  function decode(k){ return k.split("").map(Number); }
+
+  function getNeighbors(state){
+    var blank = state.indexOf(0);
+    var row = Math.floor(blank / 3), col = blank % 3;
+    var out = [];
+    var moves = [[-1,0],[1,0],[0,-1],[0,1]];
+    for (var m = 0; m < moves.length; m++){
+      var nr = row + moves[m][0], nc = col + moves[m][1];
+      if (nr >= 0 && nr < 3 && nc >= 0 && nc < 3){
+        var nb = nr * 3 + nc;
+        var next = state.slice();
+        next[blank] = next[nb];
+        next[nb] = 0;
+        out.push(next);
+      }
+    }
+    return out;
+  }
+
+  function isSolvable(state){
+    var nums = state.filter(function(x){ return x !== 0; });
+    var inv = 0;
+    for (var i = 0; i < nums.length; i++)
+      for (var j = i + 1; j < nums.length; j++)
+        if (nums[i] > nums[j]) inv++;
+    return inv % 2 === 0;
+  }
+
+  function manhattan(state){
+    var d = 0;
+    for (var i = 0; i < 9; i++){
+      var t = state[i];
+      if (t === 0) continue;
+      var g = t - 1;
+      d += Math.abs(Math.floor(i / 3) - Math.floor(g / 3)) + Math.abs((i % 3) - (g % 3));
+    }
+    return d;
+  }
+
+  function reconstruct(parent, endKey){
+    var path = [], k = endKey;
+    while (k !== null){
+      path.push(decode(k));
+      k = parent.get(k);
+    }
+    return path.reverse();
+  }
+
+  function bfs(start){
+    var sk = keyOf(start);
+    var parent = new Map([[sk, null]]);
+    var queue = [sk], head = 0, explored = 0;
+    while (head < queue.length){
+      var ck = queue[head++];
+      explored++;
+      if (ck === GOAL_KEY) return { path: reconstruct(parent, ck), explored: explored };
+      var nbs = getNeighbors(decode(ck));
+      for (var i = 0; i < nbs.length; i++){
+        var nk = keyOf(nbs[i]);
+        if (!parent.has(nk)){
+          parent.set(nk, ck);
+          queue.push(nk);
+        }
+      }
+    }
+    return { path: null, explored: explored };
+  }
+
+  function Heap(){ this.a = []; }
+  Heap.prototype.less = function(x, y){
+    if (x[0] !== y[0]) return x[0] < y[0];
+    if (x[1] !== y[1]) return x[1] < y[1];
+    return x[2] < y[2];
+  };
+  Heap.prototype.push = function(v){
+    var a = this.a, i = a.length;
+    a.push(v);
+    while (i > 0){
+      var p = (i - 1) >> 1;
+      if (this.less(a[i], a[p])){ var t = a[i]; a[i] = a[p]; a[p] = t; i = p; } else break;
+    }
+  };
+  Heap.prototype.pop = function(){
+    var a = this.a, top = a[0], last = a.pop();
+    if (a.length){
+      a[0] = last;
+      var i = 0, n = a.length;
+      for (;;){
+        var l = 2 * i + 1, r = l + 1, s = i;
+        if (l < n && this.less(a[l], a[s])) s = l;
+        if (r < n && this.less(a[r], a[s])) s = r;
+        if (s === i) break;
+        var t = a[i]; a[i] = a[s]; a[s] = t; i = s;
+      }
+    }
+    return top;
+  };
+
+  function aStar(start){
+    var sk = keyOf(start);
+    var gScore = new Map([[sk, 0]]);
+    var parent = new Map([[sk, null]]);
+    var frontier = new Heap();
+    frontier.push([manhattan(start), 0, sk]);
+    var explored = 0;
+    while (frontier.a.length){
+      var item = frontier.pop();
+      var cost = item[1], ck = item[2];
+      if (cost !== gScore.get(ck)) continue;
+      explored++;
+      if (ck === GOAL_KEY) return { path: reconstruct(parent, ck), explored: explored };
+      var nbs = getNeighbors(decode(ck));
+      for (var i = 0; i < nbs.length; i++){
+        var nk = keyOf(nbs[i]);
+        var nc = cost + 1;
+        var old = gScore.has(nk) ? gScore.get(nk) : Infinity;
+        if (nc < old){
+          gScore.set(nk, nc);
+          parent.set(nk, ck);
+          frontier.push([nc + manhattan(nbs[i]), nc, nk]);
+        }
+      }
+    }
+    return { path: null, explored: explored };
+  }
+
+  function runAlgorithm(algorithm, start){
+    var t0 = performance.now();
+    var res = algorithm(start);
+    var elapsed = performance.now() - t0;
+    return { path: res.path, explored: res.explored, ms: elapsed };
+  }
+
+  /* ---------- UI ---------- */
+  var $ = function(id){ return document.getElementById(id); };
+  var inner = $("boardInner");
+  var tiles = {};
+  var board = [2,8,3,1,6,4,7,0,5];
+  var start = board.slice();
+  var results = null;
+  var algo = "astar";
+  var step = 0;
+  var timer = null;
+
+  function place(el, idx){
+    el.style.setProperty("--r", Math.floor(idx / 3));
+    el.style.setProperty("--c", idx % 3);
+  }
+
+  // blank marker first so tiles sit above it
+  var blankEl = document.createElement("div");
+  blankEl.className = "blank";
+  blankEl.innerHTML = "<span></span>";
+  inner.appendChild(blankEl);
+
+  for (var n = 1; n <= 8; n++){
+    (function(n){
+      var b = document.createElement("button");
+      b.className = "tile";
+      b.type = "button";
+      b.setAttribute("aria-label", "Tile " + n);
+      b.innerHTML = "<span>" + n + "</span>";
+      b.addEventListener("click", function(){ tryMove(n); });
+      inner.appendChild(b);
+      tiles[n] = b;
+    })(n);
+  }
+
+  function draw(){
+    for (var i = 0; i < 9; i++){
+      if (board[i] === 0) place(blankEl, i);
+      else place(tiles[board[i]], i);
+    }
+  }
+
+  function setMsg(text, isError){
+    var m = $("msg");
+    m.textContent = text || "";
+    m.className = "msg" + (isError ? " error" : "");
+  }
+
+  function fmtMs(ms){
+    if (ms < 1) return "<1 ms";
+    if (ms < 1000) return Math.round(ms) + " ms";
+    return (ms / 1000).toFixed(2) + " s";
+  }
+  function fmtN(n){ return n.toLocaleString("en-US"); }
+
+  function stopPlay(){
+    if (timer){ clearInterval(timer); timer = null; }
+    $("playBtn").textContent = "Play";
+  }
+
+  function clearResults(){
+    stopPlay();
+    results = null;
+    step = 0;
+    $("results").hidden = true;
+    $("prevBtn").disabled = $("nextBtn").disabled = $("playBtn").disabled = true;
+    document.querySelectorAll('input[name="algo"]').forEach(function(r){ r.disabled = true; });
+    $("stepNote").textContent = "Not solved yet";
+  }
+
+  function setBoard(arr){
+    board = arr.slice();
+    start = arr.slice();
+    clearResults();
+    draw();
+    $("boardInput").value = arr.join(" ");
+  }
+
+  function tryMove(tile){
+    var i = board.indexOf(tile), b = board.indexOf(0);
+    var dist = Math.abs(Math.floor(i / 3) - Math.floor(b / 3)) + Math.abs((i % 3) - (b % 3));
+    if (dist !== 1) return;
+    var next = board.slice();
+    next[b] = tile;
+    next[i] = 0;
+    setMsg("");
+    setBoard(next);
+  }
+
+  function shuffle(){
+    var s = GOAL.slice(), prev = -1;
+    for (var k = 0; k < 90; k++){
+      var b = s.indexOf(0);
+      var opts = getNeighbors(s).map(function(x){ return x; });
+      var pick;
+      do { pick = opts[Math.floor(Math.random() * opts.length)]; }
+      while (opts.length > 1 && prev !== -1 && keyOf(pick) === prev);
+      prev = keyOf(s);
+      s = pick;
+    }
+    if (keyOf(s) === GOAL_KEY) return shuffle();
+    setMsg("");
+    setBoard(s);
+  }
+
+  function applyInput(){
+    var digits = ($("boardInput").value.match(/\d/g) || []).map(Number);
+    if (digits.length !== 9){
+      setMsg("Enter exactly 9 numbers, 3 for each row.", true);
+      return;
+    }
+    var sorted = digits.slice().sort(function(a, b){ return a - b; });
+    for (var i = 0; i < 9; i++){
+      if (sorted[i] !== i){
+        setMsg("Use each number from 0 to 8 exactly once.", true);
+        return;
+      }
+    }
+    setMsg("");
+    setBoard(digits);
+  }
+
+  function describeMove(prev, next){
+    var b0 = prev.indexOf(0), b1 = next.indexOf(0);
+    var tile = prev[b1], delta = b0 - b1;
+    var dir = delta === -3 ? "up" : delta === 3 ? "down" : delta === -1 ? "left" : "right";
+    return "Tile " + tile + " " + dir;
+  }
+
+  function path(){ return results[algo].path; }
+
+  function setStep(i){
+    var p = path();
+    step = Math.max(0, Math.min(p.length - 1, i));
+    board = p[step].slice();
+    draw();
+    var total = p.length - 1;
+    $("stepNote").textContent = "Step " + step + " of " + total;
+    $("prevBtn").disabled = step === 0;
+    $("nextBtn").disabled = step === total;
+    $("playBtn").disabled = false;
+    var btns = $("stepList").querySelectorAll("button");
+    btns.forEach(function(b, idx){
+      if (idx === step) b.setAttribute("aria-current", "step"); else b.removeAttribute("aria-current");
+    });
+    if (step === total) stopPlay();
+  }
+
+  function buildStepList(){
+    var list = $("stepList");
+    list.innerHTML = "";
+    var p = path();
+    var startItem = document.createElement("li");
+    var sb = document.createElement("button");
+    sb.type = "button";
+    sb.textContent = "Start";
+    sb.addEventListener("click", function(){ stopPlay(); setStep(0); });
+    startItem.appendChild(sb);
+    list.appendChild(startItem);
+    for (var i = 1; i < p.length; i++){
+      (function(i){
+        var li = document.createElement("li");
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = i + ". " + describeMove(p[i - 1], p[i]);
+        b.addEventListener("click", function(){ stopPlay(); setStep(i); });
+        li.appendChild(b);
+        list.appendChild(li);
+      })(i);
+    }
+    $("stepsFor").textContent = "Shown for " + (algo === "bfs" ? "Breadth-First Search" : "A* Search") + ". Select a step to jump to it.";
+  }
+
+  function showResults(){
+    var r = results, bm = r.bfs.path.length - 1, am = r.astar.path.length - 1;
+    $("bfsMoves").textContent = bm;
+    $("bfsExplored").textContent = fmtN(r.bfs.explored);
+    $("bfsTime").textContent = fmtMs(r.bfs.ms);
+    $("astarMoves").textContent = am;
+    $("astarExplored").textContent = fmtN(r.astar.explored);
+    $("astarTime").textContent = fmtMs(r.astar.ms);
+
+    var max = Math.max(r.bfs.explored, r.astar.explored);
+    $("bfsBar").style.width = (r.bfs.explored / max * 100) + "%";
+    $("astarBar").style.width = (r.astar.explored / max * 100) + "%";
+
+    var text;
+    if (bm === am) text = "Both searches found a " + bm + "-move solution. ";
+    else text = "BFS needed " + bm + " moves and A* needed " + am + ". ";
+    if (r.astar.explored < r.bfs.explored){
+      var ratio = r.bfs.explored / r.astar.explored;
+      text += "A* explored " + (ratio >= 10 ? Math.round(ratio) : ratio.toFixed(1)) + " times fewer states (" + fmtN(r.astar.explored) + " compared with " + fmtN(r.bfs.explored) + ").";
+    } else if (r.astar.explored === r.bfs.explored){
+      text += "Both explored the same number of states.";
+    } else {
+      text += "On this board BFS explored fewer states.";
+    }
+    $("summary").textContent = text;
+    $("results").hidden = false;
+  }
+
+  function solve(){
+    stopPlay();
+    board = start.slice();
+    draw();
+    if (!isSolvable(start)){
+      clearResults();
+      setMsg("This puzzle is not solvable. Swap two tiles and try again.", true);
+      return;
+    }
+    if (keyOf(start) === GOAL_KEY){
+      clearResults();
+      setMsg("The puzzle is already solved. Pick another board.");
+      return;
+    }
+    $("solveBtn").disabled = true;
+    setMsg("Solving...");
+    setTimeout(function(){
+      var b = runAlgorithm(bfs, start);
+      var a = runAlgorithm(aStar, start);
+      $("solveBtn").disabled = false;
+      if (!b.path || !a.path){
+        clearResults();
+        setMsg("No solution found.", true);
+        return;
+      }
+      results = { bfs: b, astar: a };
+      setMsg("Solved. Press Play to watch it.");
+      document.querySelectorAll('input[name="algo"]').forEach(function(r){ r.disabled = false; });
+      showResults();
+      buildStepList();
+      setStep(0);
+      $("results").scrollIntoView({ behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth", block: "nearest" });
+    }, 30);
+  }
+
+  function play(){
+    if (!results) return;
+    if (timer){ stopPlay(); return; }
+    if (step >= path().length - 1) setStep(0);
+    $("playBtn").textContent = "Pause";
+    timer = setInterval(function(){
+      setStep(step + 1);
+    }, 520);
+  }
+
+  /* events */
+  document.querySelectorAll("[data-preset]").forEach(function(b){
+    b.addEventListener("click", function(){
+      setMsg("");
+      setBoard(b.getAttribute("data-preset").split(",").map(Number));
+    });
+  });
+  $("shuffleBtn").addEventListener("click", shuffle);
+  $("applyBtn").addEventListener("click", applyInput);
+  $("boardInput").addEventListener("keydown", function(e){ if (e.key === "Enter") applyInput(); });
+  $("solveBtn").addEventListener("click", solve);
+  $("playBtn").addEventListener("click", play);
+  $("prevBtn").addEventListener("click", function(){ stopPlay(); setStep(step - 1); });
+  $("nextBtn").addEventListener("click", function(){ stopPlay(); setStep(step + 1); });
+  document.querySelectorAll('input[name="algo"]').forEach(function(r){
+    r.addEventListener("change", function(){
+      if (!results) return;
+      stopPlay();
+      algo = r.value;
+      buildStepList();
+      setStep(0);
+    });
+  });
+
+  draw();
+  $("boardInput").value = board.join(" ");
+})();
+</script>
+</body>
+</html>
